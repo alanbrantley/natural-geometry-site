@@ -1188,7 +1188,15 @@
       let diff = deg - targetAngle;
       if (diff > 180) diff -= 360;
       if (diff < -180) diff += 360;
-      // diff < 0 = approaching, diff > 0 = departing
+
+      // Distance to the NEXT trigger (for backspace timing)
+      let diffToNext = 999;
+      if (twNextTrigger + 1 < TRIGGER_ANGLES.length) {
+        const nextAngle = TRIGGER_ANGLES[twNextTrigger + 1];
+        diffToNext = deg - nextAngle;
+        if (diffToNext > 180) diffToNext -= 360;
+        if (diffToNext < -180) diffToNext += 360;
+      }
 
       // Enter approach zone → start typing (or hold for empty suffix)
       if (twState === 'idle' && diff > -TW_APPROACH && diff < 0) {
@@ -1226,8 +1234,10 @@
         taglineCursorEl.style.display = 'none';
       }
 
-      // After dwell ends and we've departed, start backspacing
-      if (twState === 'visible' && !isDwelling && diff > TW_DEPART) {
+      // Keep suffix visible after dwell — only backspace when approaching NEXT trigger
+      const TW_BACKSPACE_BEFORE = 35;
+      if (twState === 'visible' && !isDwelling && twNextTrigger + 1 < TRIGGER_ANGLES.length
+          && diffToNext > -TW_BACKSPACE_BEFORE && diffToNext < 0) {
         twState = 'backspacing';
         twStartTime = performance.now();
         taglineCursorEl.style.display = 'inline';
