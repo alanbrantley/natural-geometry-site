@@ -355,9 +355,10 @@
     // All circle centers: origin first, then 6 surrounding
     const allCenters = [origin, ...projected];
     const TWO_PI = Math.PI * 2;
-    const TRAIL = Math.PI * 0.6; // trail length in radians
-    const TRAIL_SEGS = 20;
+    const TRAIL = Math.PI * 0.5; // trail fade length in radians
+    const TRAIL_SEGS = 16;
     const BASE_ALPHA = 0.55;
+    const MAX_STAGGER = 0.10; // total stagger budget across all circles
 
     ctx.save();
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
@@ -365,59 +366,78 @@
 
     for (let ci = 0; ci < allCenters.length; ci++) {
       const c = allCenters[ci];
-      // Stagger: center draws first, surrounding circles fan out
-      const stagger = ci === 0 ? 0 : 0.04 + (ci - 1) * 0.02;
+      // Gentle stagger: center first, surrounding fan out evenly
+      const stagger = ci === 0 ? 0 : MAX_STAGGER * (ci / (allCenters.length - 1));
+
+      // Map rawProgress to per-circle progress accounting for stagger
+      const p = Math.max(0, Math.min(1, (rawProgress - stagger) / (1 - stagger)));
 
       if (phase === 'in') {
-        // Progress for this circle (accounting for stagger)
-        const p = Math.max(0, Math.min(1, (rawProgress - stagger) / (1 - stagger)));
+        // Arc sweeps from 0 to p * TWO_PI
         const headAngle = p * TWO_PI;
-        const trailStart = Math.max(0, headAngle - TRAIL);
+        if (headAngle < 0.01) continue;
 
-        // Solid body (fully traced portion behind the trail)
-        if (trailStart > 0.01) {
+        // When nearly/fully complete, draw solid circle
+        if (p >= 0.98) {
           ctx.globalAlpha = opacity * BASE_ALPHA;
           ctx.beginPath();
-          ctx.arc(c.x, c.y, radius, 0, trailStart);
+          ctx.arc(c.x, c.y, radius, 0, TWO_PI);
+          ctx.stroke();
+          continue;
+        }
+
+        // Solid body: everything behind the trail
+        const solidEnd = Math.max(0, headAngle - TRAIL);
+        if (solidEnd > 0.01) {
+          ctx.globalAlpha = opacity * BASE_ALPHA;
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, radius, 0, solidEnd);
           ctx.stroke();
         }
 
-        // Trail: fades from solid at trailStart to transparent at headAngle
-        if (headAngle > 0.01) {
-          for (let s = 0; s < TRAIL_SEGS; s++) {
-            const t0 = s / TRAIL_SEGS;
-            const t1 = (s + 1) / TRAIL_SEGS;
-            const a0 = trailStart + (headAngle - trailStart) * t0;
-            const a1 = trailStart + (headAngle - trailStart) * t1;
-            // Bright at trailStart, fading toward head
-            ctx.globalAlpha = opacity * BASE_ALPHA * (1 - t1 * 0.85);
-            ctx.beginPath();
-            ctx.arc(c.x, c.y, radius, a0, a1);
-            ctx.stroke();
-          }
+        // Trail: comet effect — bright at head, fades behind
+        for (let s = 0; s < TRAIL_SEGS; s++) {
+          const t0 = s / TRAIL_SEGS;
+          const t1 = (s + 1) / TRAIL_SEGS;
+          const a0 = solidEnd + (headAngle - solidEnd) * t0;
+          const a1 = solidEnd + (headAngle - solidEnd) * t1;
+          // t=0 is tail (faded), t=1 is head (bright)
+          ctx.globalAlpha = opacity * BASE_ALPHA * t1;
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, radius, a0, a1);
+          ctx.stroke();
         }
       } else {
-        // phase === 'out': circle untraces from where it started
-        const p = Math.max(0, Math.min(1, (rawProgress - stagger) / (1 - stagger)));
-        const eraseAngle = (1 - p) * TWO_PI; // how far erasing has progressed
-        const trailEnd = Math.min(TWO_PI, eraseAngle + TRAIL);
+        // phase === 'out': erase from start, sweeping forward
+        const erasePoint = (1 - p) * TWO_PI;
 
-        // Trail at the erasing edge: fading from solid to transparent
-        if (trailEnd > eraseAngle + 0.01) {
-          for (let s = 0; s < TRAIL_SEGS; s++) {
-            const t0 = s / TRAIL_SEGS;
-            const t1 = (s + 1) / TRAIL_SEGS;
-            const a0 = eraseAngle + (trailEnd - eraseAngle) * t0;
-            const a1 = eraseAngle + (trailEnd - eraseAngle) * t1;
-            // Fading from transparent at eraseAngle to solid at trailEnd
-            ctx.globalAlpha = opacity * BASE_ALPHA * t0;
-            ctx.beginPath();
-            ctx.arc(c.x, c.y, radius, a0, a1);
-            ctx.stroke();
-          }
+        // When barely started erasing, draw full circle
+        if (p >= 0.98) {
+          ctx.globalAlpha = opacity * BASE_ALPHA;
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, radius, 0, TWO_PI);
+          ctx.stroke();
+          continue;
         }
 
-        // Solid remaining portion (after the trail)
+        // When fully erased, skip
+        if (erasePoint >= TWO_PI - 0.01) continue;
+
+        // Trail at the erasing edge: fades from transparent to solid
+        const trailEnd = Math.min(TWO_PI, erasePoint + TRAIL);
+        for (let s = 0; s < TRAIL_SEGS; s++) {
+          const t0 = s / TRAIL_SEGS;
+          const t1 = (s + 1) / TRAIL_SEGS;
+          const a0 = erasePoint + (trailEnd - erasePoint) * t0;
+          const a1 = erasePoint + (trailEnd - erasePoint) * t1;
+          // t=0 is erasing edge (faded), t=1 is solid side (bright)
+          ctx.globalAlpha = opacity * BASE_ALPHA * t1;
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, radius, a0, a1);
+          ctx.stroke();
+        }
+
+        // Solid remaining portion (after the trail to end of circle)
         if (trailEnd < TWO_PI - 0.01) {
           ctx.globalAlpha = opacity * BASE_ALPHA;
           ctx.beginPath();
