@@ -324,15 +324,34 @@
     return null;
   }
 
-  // --- Flower of Life: 7 circles ---
+  // --- Shared: 6 cube face centers in 3D (axis endpoints) ---
+  function getFaceCenters3D() {
+    const s = PLANE_SIZE;
+    return [
+      [s, 0, 0], [-s, 0, 0],
+      [0, s, 0], [0, -s, 0],
+      [0, 0, s], [0, 0, -s]
+    ];
+  }
+
+  // --- Flower of Life: 7 overlapping circles ---
+  // Centers: origin + 6 axis endpoints (hexagon corners in projection)
+  // Radius = distance from origin to each center → classic overlap
   function drawFlowerOfLife(opacity) {
     const origin = project([0, 0, 0]);
-    const wrap = canvas.parentElement;
-    const rect = wrap.getBoundingClientRect();
-    const radius = Math.min(rect.width, rect.height) * 0.12;
+    const centers3D = getFaceCenters3D();
+    const projected = centers3D.map(p => project(p));
+
+    // Radius = average projected distance from origin to face centers
+    let avgDist = 0;
+    for (const p of projected) {
+      avgDist += Math.hypot(p.x - origin.x, p.y - origin.y);
+    }
+    avgDist /= projected.length;
+    const radius = avgDist;
 
     ctx.save();
-    ctx.globalAlpha = opacity * 0.6;
+    ctx.globalAlpha = opacity * 0.55;
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
     ctx.lineWidth = 1;
 
@@ -341,71 +360,54 @@
     ctx.arc(origin.x, origin.y, radius, 0, Math.PI * 2);
     ctx.stroke();
 
-    // 6 surrounding circles
-    for (let i = 0; i < 6; i++) {
-      const angle = (i * 60) * DEG;
-      const cx = origin.x + radius * Math.cos(angle);
-      const cy = origin.y + radius * Math.sin(angle);
+    // 6 surrounding circles (same radius, centered at projected face centers)
+    for (const p of projected) {
       ctx.beginPath();
-      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
       ctx.stroke();
     }
 
     ctx.restore();
   }
 
-  // --- Spheres: 7 circles reading as spheres ---
+  // --- Spheres: 7 non-overlapping circles inscribed in cube faces ---
+  // Centers: origin + 6 cube face centers
+  // Radius ≈ half the distance to nearest neighbor → no overlap
   function drawSpheres(opacity) {
     const origin = project([0, 0, 0]);
-    const wrap = canvas.parentElement;
-    const rect = wrap.getBoundingClientRect();
-    const radius = Math.min(rect.width, rect.height) * 0.065;
-    const spacing = radius * 2.8;
+    const centers3D = getFaceCenters3D();
+    const projected = centers3D.map(p => project(p));
+
+    // Find min distance from origin to any projected center
+    let minDist = Infinity;
+    for (const p of projected) {
+      const d = Math.hypot(p.x - origin.x, p.y - origin.y);
+      if (d < minDist) minDist = d;
+    }
+    // Radius: exactly half min distance → tangent to each other
+    const radius = minDist * 0.5;
 
     ctx.save();
     ctx.globalAlpha = opacity * 0.5;
-
-    // Draw sphere-like circles with subtle shading
-    function drawSphere(cx, cy, r) {
-      // Outer circle
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-
-      // Inner highlight arc (top-left)
-      ctx.beginPath();
-      ctx.arc(cx - r * 0.15, cy - r * 0.15, r * 0.7, Math.PI * 1.1, Math.PI * 1.8);
-      ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-      ctx.lineWidth = 0.5;
-      ctx.stroke();
-
-      // Equator line
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, r, r * 0.3, 0, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(0,0,0,0.12)';
-      ctx.lineWidth = 0.5;
-      ctx.stroke();
-    }
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 1;
 
     // Center sphere
-    drawSphere(origin.x, origin.y, radius);
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
 
-    // 6 surrounding spheres
-    for (let i = 0; i < 6; i++) {
-      const angle = (i * 60) * DEG;
-      drawSphere(
-        origin.x + spacing * Math.cos(angle),
-        origin.y + spacing * Math.sin(angle),
-        radius
-      );
+    // 6 surrounding spheres at cube face centers
+    for (const p of projected) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
     ctx.restore();
   }
 
-  // --- Spheres + Cube: spheres plus the implied cube made explicit ---
+  // --- Spheres + Cube: non-overlapping spheres plus explicit cube ---
   function drawSpheresCube(opacity) {
     // Draw the spheres first
     drawSpheres(opacity);
@@ -422,11 +424,11 @@
       [-s, -s,  s], [s, -s,  s], [s, s,  s], [-s, s,  s]
     ];
 
-    // 12 edges (pairs of vertex indices)
+    // 12 edges
     const cubeEdges = [
-      [0,1],[1,2],[2,3],[3,0], // back face
-      [4,5],[5,6],[6,7],[7,4], // front face
-      [0,4],[1,5],[2,6],[3,7]  // connecting edges
+      [0,1],[1,2],[2,3],[3,0],
+      [4,5],[5,6],[6,7],[7,4],
+      [0,4],[1,5],[2,6],[3,7]
     ];
 
     for (const [a, b] of cubeEdges) {
@@ -490,7 +492,7 @@
     p = rotX(p, -PHI);
     const cx = w / 2;
     const cy = h / 2;
-    const s = focalLength * 0.28;
+    const s = focalLength * 0.17;
     return { x: cx + p[0] * s, y: cy - p[1] * s, z: p[2] };
   }
 
