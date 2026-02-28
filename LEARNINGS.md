@@ -7,3 +7,11 @@ Swapping Y/Z by changing the projection function (`cy - p[2] * s` instead of `cy
 ## 2026-02-28 — Geometry Must Match Across Drawing Functions
 
 When rewriting `drawSpheresCube`, the sphere centers and radius calculation must be identical to `drawSpheres` (origin + 6 face centers, radius = minDist * 0.5). Any deviation causes visible misalignment.
+
+## 2026-02-28 — Ethereal Design: Less Is More
+
+User aesthetic strongly favors pencil-drawn monochrome. Colored plane fills were rejected — keep geometry pure grey. Dwell flash needed 10-100x reduction from initial implementation. Ambient color (orbs, glassmorphism hover glow) works best as peripheral/background only, never on the geometry itself.
+
+## 2026-02-28 — Static Site Vercel Deployment
+
+Single `index.html` sites need zero Vercel config. Framework preset: "Other". No build command. Auto-deploys on every push to main. Custom domain requires A record (76.76.21.21) for root and CNAME (cname.vercel-dns.com) for www.

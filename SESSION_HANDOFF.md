@@ -1,39 +1,44 @@
 # Natural Geometry Site Session Handoff — 2026-02-28
 
 ## Session Summary
-Removed the 315° animation trigger and added trailing stroke draw-in/draw-out animation to the Spheres+Cube overlay, matching the Flower of Life style.
+Added ethereal micro-design (glassmorphism, ambient orbs, dwell flash, tagline cycling with draw-in animation), created GitHub repo, and prepared Vercel deployment.
 
 ## Git Status
 
 | Field | Value |
 |-------|-------|
 | Branch | `main` |
-| Latest | `f5f76ce` feat: trailing stroke animation for Spheres+Cube draw-in/draw-out |
+| Latest | `8cf395a` feat: ethereal micro-design — glassmorphism, ambient orbs, tagline cycling |
 | Status | Clean |
+| Remote | `github.com/alanbrantley/natural-geometry-site` |
 
 ## What's Shipped
-- Removed 315° from TRIGGER_ANGLES — that rotation angle now just shows intersecting planes with no overlay
-- Rewrote `drawSpheresCube` with trailing stroke animation: spheres trace on/off with comet trails, cube edges trace with line-segment trails, both hold solid during dwell pause
+- Ambient gradient orbs (pink/purple/lavender) with slow drift animation behind canvas
+- Glassmorphic nav bar and control buttons with backdrop-filter blur
+- Subtle axis-cross dwell flash on animation pause triggers (very low opacity per user feedback)
+- Tagline cycling: "A different way of seeing geometry / math / the world / (nothing)" across 4 rotations
+- Draw-in clip-path reveal animation on page load for tagline
+- Tagline font size increased to 22px
+- Plane fills kept as original monochrome grey (user preferred pencil-drawn aesthetic)
+- GitHub repo created (`alanbrantley/natural-geometry-site`) and pushed
+- Vercel deployment instructions provided — user completing import
 
 ## Known Issues
-- No git remote configured — commits are local only, cannot push
-- Attempted Y/Z axis label swap broke alignment — reverted. Axis relabeling needs a different approach (possibly swapping the actual 3D coordinates in all geometry functions, not just projection or labels)
+- None
 
 ## Blockers
-- [ ] Need git remote URL to push commits
+- [ ] User needs to complete Vercel import from GitHub and configure custom domain DNS
 
 ## Learnings
-- **Axis swaps are fragile:** Swapping Y/Z in the projection function or just relabeling axes breaks circle alignment because the rotation functions (rotX, rotY) and geometry definitions are tightly coupled to the coordinate system. A proper swap would need to go through all geometry: plane quads, grid lines, face centers, cube vertices, rotation calls.
-- **Geometry must match exactly:** When rewriting `drawSpheresCube`, the sphere centers and radius calculation must be identical to `drawSpheres` (minDist * 0.5) to avoid misalignment.
+- **Dwell flash tuning:** User wanted the pulse reduced by 10-100x from initial — subtle axis-cross lines at ~0.02 opacity rather than a radial bloom
+- **Aesthetic direction:** User strongly prefers pencil-drawn monochrome geometry; colored plane fills were removed; ethereal touches should be ambient/peripheral only
+- **Deployment:** Single static `index.html` needs zero Vercel config — framework "Other", no build command
 
 ## Next Actions
-1. [ ] Configure git remote and push all local commits
-2. [ ] Verify Spheres+Cube trailing animation looks correct in browser
-3. [ ] Consider adding trailing strokes to the standalone Spheres animation (135° trigger) for consistency
-4. [ ] If Y/Z axis relabeling is still desired, plan a coordinated swap across all geometry functions
+1. [ ] Complete Vercel import and custom domain setup
+2. [ ] Verify SSL certificate auto-provisioning on Vercel
+3. [ ] Test live site across devices/browsers
+4. [ ] Consider further refinements to tagline timing or animation
 
 ## Key Files
-- `index.html` — Single-file site with all HTML/CSS/JS (canvas animation system)
-- Lines 296: `TRIGGER_ANGLES` — now `[45, 135, 225]`
-- Lines 530-756: `drawSpheresCube()` — new trailing stroke implementation
-- Lines 567-573: `renderAnimation()` — dispatch with phase/rawProgress for spheresCube
+- `index.html` — Entire site (CSS + HTML + JS in single file)
