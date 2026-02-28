@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Natural Geometry</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #f5f5f3;
+    --fg: #1a1a1a;
+    --mid: #999;
+    --light: #ccc;
+    --faint: #e0e0de;
+    --canvas-size: min(55vh, 55vw);
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'DM Mono', monospace;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* --- Nav bar --- */
+  .nav {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    padding: 0 28px;
+    border-bottom: 1px solid var(--faint);
+    z-index: 10;
+  }
+
+  .nav-title {
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 400;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+    color: var(--fg);
+  }
+
+  /* --- Main content area --- */
+  .main {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding-top: 52px; /* nav height */
+    padding-bottom: 60px; /* controls space */
+  }
+
+  /* --- Coming Soon --- */
+  .teaser {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+
+  .tagline {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 300;
+    font-style: italic;
+    color: var(--mid);
+    letter-spacing: 0.01em;
+    margin-bottom: 6px;
+  }
+
+  .status {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--light);
+    font-weight: 300;
+  }
+
+  /* --- Canvas container --- */
+  .canvas-wrap {
+    position: relative;
+    width: var(--canvas-size);
+    height: var(--canvas-size);
+    flex-shrink: 0;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: default;
+    touch-action: none;
+  }
+
+  canvas.grabbing {
+    cursor: grabbing;
+  }
+
+  /* --- Readouts (under canvas) --- */
+  .readouts {
+    display: flex;
+    gap: 40px;
+    margin-top: 20px;
+  }
+
+  .readout {
+    text-align: center;
+  }
+
+  .readout-label {
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--light);
+    margin-bottom: 3px;
+    font-weight: 300;
+  }
+
+  .readout-value {
+    font-size: 20px;
+    font-weight: 300;
+    color: var(--fg);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .readout-value .deg {
+    font-size: 13px;
+    color: var(--mid);
+    margin-left: 1px;
+  }
+
+  /* --- Controls (bottom of screen) --- */
+  .controls {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    z-index: 10;
+  }
+
+  .ctrl-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--faint);
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.3s, background 0.3s, color 0.3s;
+    color: var(--mid);
+  }
+
+  .ctrl-btn:hover {
+    border-color: var(--light);
+    background: rgba(0,0,0,0.03);
+    color: var(--fg);
+  }
+
+  .ctrl-btn svg {
+    width: 12px;
+    height: 12px;
+    fill: currentColor;
+  }
+
+  /* --- Grain --- */
+  .grain {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.3;
+    z-index: 100;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.08'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+    background-size: 256px 256px;
+  }
+
+  /* --- Responsive --- */
+  @media (max-width: 600px) {
+    :root { --canvas-size: 75vw; }
+    .nav { padding: 0 16px; }
+    .readouts { gap: 28px; }
+    .readout-value { font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav class="nav">
+    <span class="nav-title">Natural Geometry</span>
+  </nav>
+
+  <!-- Main content -->
+  <div class="main">
+    <div class="teaser">
+      <div class="tagline">A different way of seeing</div>
+      <div class="status">Taking shape</div>
+    </div>
+
+    <div class="canvas-wrap">
+      <canvas id="hero"></canvas>
+    </div>
+
+    <div class="readouts">
+      <div class="readout">
+        <div class="readout-label">Azimuth θ</div>
+        <div class="readout-value" id="az">-45<span class="deg">°</span></div>
+      </div>
+      <div class="readout">
+        <div class="readout-label">Elevation φ</div>
+        <div class="readout-value" id="el">35<span class="deg">°</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="ctrl-btn" id="btnPlayPause" title="Pause / Play">
+      <svg id="iconPause" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg">
+        <rect x="2" y="1" width="2.5" height="10" rx="0.5"/>
+        <rect x="7.5" y="1" width="2.5" height="10" rx="0.5"/>
+      </svg>
+      <svg id="iconPlay" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg" style="display:none">
+        <polygon points="2.5,1 10.5,6 2.5,11"/>
+      </svg>
+    </button>
+    <button class="ctrl-btn" id="btnReset" title="Reset">
+      <svg viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg">
+        <path d="M6 1.5a4.5 4.5 0 1 0 4.2 2.9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        <polygon points="10.8,1.2 10.2,4.4 7.4,2.8" fill="currentColor"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="grain"></div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('hero');
+  const ctx = canvas.getContext('2d');
+  const azEl = document.getElementById('az');
+  const elEl = document.getElementById('el');
+  const btnPlayPause = document.getElementById('btnPlayPause');
+  const btnReset = document.getElementById('btnReset');
+  const iconPause = document.getElementById('iconPause');
+  const iconPlay = document.getElementById('iconPlay');
+
+  const DEG = Math.PI / 180;
+  const ROTATION_PERIOD = 30;
+  const PLANE_SIZE = 1.0;
+  const GRID_DIVS = 6;
+  const AXIS_EXTEND = 1.35;
+
+  const HOME_THETA = -45 * DEG;
+  const PHI = 35 * DEG;
+
+  let theta = HOME_THETA;
+  let focalLength = 800;
+
+  let isSpinning = true;
+  const spinSpeed = (2 * Math.PI) / ROTATION_PERIOD;
+  let currentVelocity = spinSpeed;
+  let targetVelocity = spinSpeed;
+  let lastTime = performance.now();
+
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragThetaStart = 0;
+  let isResetting = false;
+
+  // =============================================
+  // v3: Animation Trigger System
+  // =============================================
+
+  // Trigger angles and delta window
+  const TRIGGER_ANGLES = [45, 135, 225, 315]; // degrees
+  const DELTA_BEFORE = 8;  // degrees before trigger: fade in
+  const DELTA_AFTER = 8;   // degrees after trigger: fade out
+  const ANIMATION_NAMES = ['flowerOfLife', 'spheres', 'spheresCube'];
+
+  // Get current animation opacity (0-1) based on theta
+  function getAnimationState() {
+    // Normalize theta to 0-360
+    let deg = ((theta / DEG) % 360 + 360) % 360;
+
+    for (let i = 0; i < TRIGGER_ANGLES.length; i++) {
+      const target = TRIGGER_ANGLES[i];
+      // Angular distance (shortest path)
+      let diff = deg - target;
+      if (diff > 180) diff -= 360;
+      if (diff < -180) diff += 360;
+
+      const totalWindow = DELTA_BEFORE + DELTA_AFTER;
+      if (Math.abs(diff) <= Math.max(DELTA_BEFORE, DELTA_AFTER)) {
+        let opacity;
+        if (diff <= 0 && Math.abs(diff) <= DELTA_BEFORE) {
+          // Approaching: fade in
+          opacity = 1 - Math.abs(diff) / DELTA_BEFORE;
+        } else if (diff > 0 && diff <= DELTA_AFTER) {
+          // Departing: fade out
+          opacity = 1 - diff / DELTA_AFTER;
+        } else {
+          continue;
+        }
+        // Smooth easing
+        opacity = opacity * opacity * (3 - 2 * opacity); // smoothstep
+        const animIndex = i % ANIMATION_NAMES.length;
+        return { name: ANIMATION_NAMES[animIndex], opacity, triggerAngle: target };
+      }
+    }
+    return null;
+  }
+
+  // --- Flower of Life: 7 circles ---
+  function drawFlowerOfLife(opacity) {
+    const origin = project([0, 0, 0]);
+    const wrap = canvas.parentElement;
+    const rect = wrap.getBoundingClientRect();
+    const radius = Math.min(rect.width, rect.height) * 0.12;
+
+    ctx.save();
+    ctx.globalAlpha = opacity * 0.6;
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1;
+
+    // Center circle
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 6 surrounding circles
+    for (let i = 0; i < 6; i++) {
+      const angle = (i * 60) * DEG;
+      const cx = origin.x + radius * Math.cos(angle);
+      const cy = origin.y + radius * Math.sin(angle);
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  // --- Spheres: 7 circles reading as spheres ---
+  function drawSpheres(opacity) {
+    const origin = project([0, 0, 0]);
+    const wrap = canvas.parentElement;
+    const rect = wrap.getBoundingClientRect();
+    const radius = Math.min(rect.width, rect.height) * 0.065;
+    const spacing = radius * 2.8;
+
+    ctx.save();
+    ctx.globalAlpha = opacity * 0.5;
+
+    // Draw sphere-like circles with subtle shading
+    function drawSphere(cx, cy, r) {
+      // Outer circle
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Inner highlight arc (top-left)
+      ctx.beginPath();
+      ctx.arc(cx - r * 0.15, cy - r * 0.15, r * 0.7, Math.PI * 1.1, Math.PI * 1.8);
+      ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+
+      // Equator line
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, r, r * 0.3, 0, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+
+    // Center sphere
+    drawSphere(origin.x, origin.y, radius);
+
+    // 6 surrounding spheres
+    for (let i = 0; i < 6; i++) {
+      const angle = (i * 60) * DEG;
+      drawSphere(
+        origin.x + spacing * Math.cos(angle),
+        origin.y + spacing * Math.sin(angle),
+        radius
+      );
+    }
+
+    ctx.restore();
+  }
+
+  // --- Spheres + Cube: spheres plus the implied cube made explicit ---
+  function drawSpheresCube(opacity) {
+    // Draw the spheres first
+    drawSpheres(opacity);
+
+    const s = PLANE_SIZE;
+    ctx.save();
+    ctx.globalAlpha = opacity * 0.55;
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1.2;
+
+    // 8 cube vertices
+    const cubeVerts = [
+      [-s, -s, -s], [s, -s, -s], [s, s, -s], [-s, s, -s],
+      [-s, -s,  s], [s, -s,  s], [s, s,  s], [-s, s,  s]
+    ];
+
+    // 12 edges (pairs of vertex indices)
+    const cubeEdges = [
+      [0,1],[1,2],[2,3],[3,0], // back face
+      [4,5],[5,6],[6,7],[7,4], // front face
+      [0,4],[1,5],[2,6],[3,7]  // connecting edges
+    ];
+
+    for (const [a, b] of cubeEdges) {
+      const pa = project(cubeVerts[a]);
+      const pb = project(cubeVerts[b]);
+      ctx.beginPath();
+      ctx.moveTo(pa.x, pa.y);
+      ctx.lineTo(pb.x, pb.y);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  // Dispatch animation rendering
+  function renderAnimation(state) {
+    if (!state) return;
+    switch (state.name) {
+      case 'flowerOfLife': drawFlowerOfLife(state.opacity); break;
+      case 'spheres': drawSpheres(state.opacity); break;
+      case 'spheresCube': drawSpheresCube(state.opacity); break;
+    }
+  }
+
+  // =============================================
+  // End v3 animation system
+  // =============================================
+
+  // --- Resize (fits canvas-wrap container) ---
+  function resize() {
+    const wrap = canvas.parentElement;
+    const rect = wrap.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = rect.width;
+    const h = rect.height;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    focalLength = Math.min(w, h) * 1.4;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // --- Math ---
+  function rotY(p, a) {
+    const c = Math.cos(a), s = Math.sin(a);
+    return [p[0]*c + p[2]*s, p[1], -p[0]*s + p[2]*c];
+  }
+  function rotX(p, a) {
+    const c = Math.cos(a), s = Math.sin(a);
+    return [p[0], p[1]*c - p[2]*s, p[1]*s + p[2]*c];
+  }
+
+  function project(point) {
+    const wrap = canvas.parentElement;
+    const rect = wrap.getBoundingClientRect();
+    const w = rect.width, h = rect.height;
+    let p = rotY(point, theta);
+    p = rotX(p, -PHI);
+    const cx = w / 2;
+    const cy = h / 2;
+    const s = focalLength * 0.28;
+    return { x: cx + p[0] * s, y: cy - p[1] * s, z: p[2] };
+  }
+
+  // --- Geometry ---
+  function makePlaneQuad(axis) {
+    const s = PLANE_SIZE;
+    if (axis === 'xy') return [[-s,-s,0],[s,-s,0],[s,s,0],[-s,s,0]];
+    if (axis === 'yz') return [[0,-s,-s],[0,s,-s],[0,s,s],[0,-s,s]];
+    if (axis === 'xz') return [[-s,0,-s],[s,0,-s],[s,0,s],[-s,0,s]];
+  }
+
+  function makeGridLines(axis) {
+    const s = PLANE_SIZE;
+    const lines = [];
+    for (let i = 0; i <= GRID_DIVS; i++) {
+      const t = -s + (2*s) * i / GRID_DIVS;
+      if (axis === 'xy') { lines.push([[-s,t,0],[s,t,0]]); lines.push([[t,-s,0],[t,s,0]]); }
+      else if (axis === 'yz') { lines.push([[0,-s,t],[0,s,t]]); lines.push([[0,t,-s],[0,t,s]]); }
+      else if (axis === 'xz') { lines.push([[-s,0,t],[s,0,t]]); lines.push([[t,0,-s],[t,0,s]]); }
+    }
+    return lines;
+  }
+
+  const planes = ['xy', 'yz', 'xz'];
+
+  function getAxes() {
+    const a = AXIS_EXTEND;
+    return [
+      { from: [-a,0,0], to: [a,0,0], label: 'X' },
+      { from: [0,-a,0], to: [0,a,0], label: 'Y' },
+      { from: [0,0,-a], to: [0,0,a], label: 'Z' },
+    ];
+  }
+
+  // --- Render ---
+  function drawLine(p1, p2, color, width) {
+    const a = project(p1), b = project(p2);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.stroke();
+  }
+
+  function drawPlaneFill(corners, color) {
+    const pts = corners.map(c => project(c));
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+
+  function planeCentroidDepth(corners) {
+    let z = 0;
+    for (const c of corners) z += project(c).z;
+    return z / corners.length;
+  }
+
+  function render() {
+    const wrap = canvas.parentElement;
+    const rect = wrap.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    const planeData = planes.map(axis => ({
+      axis, corners: makePlaneQuad(axis),
+      depth: planeCentroidDepth(makePlaneQuad(axis))
+    }));
+    planeData.sort((a, b) => a.depth - b.depth);
+
+    const fills = { xy: 'rgba(0,0,0,0.035)', yz: 'rgba(0,0,0,0.05)', xz: 'rgba(0,0,0,0.025)' };
+    const edges = { xy: 'rgba(0,0,0,0.20)', yz: 'rgba(0,0,0,0.22)', xz: 'rgba(0,0,0,0.18)' };
+
+    for (const { axis, corners } of planeData) {
+      drawPlaneFill(corners, fills[axis]);
+      for (const [f, t] of makeGridLines(axis)) drawLine(f, t, 'rgba(0,0,0,0.06)', 0.5);
+      for (let i = 0; i < corners.length; i++) drawLine(corners[i], corners[(i+1)%4], edges[axis], 1);
+    }
+
+    for (const ax of getAxes()) {
+      drawLine(ax.from, ax.to, 'rgba(60,60,60,0.5)', 1.2);
+      const lp = project(ax.to);
+      ctx.font = '300 11px "DM Mono", monospace';
+      ctx.fillStyle = 'rgba(80,80,80,0.7)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(ax.label, lp.x + 12, lp.y - 4);
+    }
+
+    const o = project([0,0,0]);
+    ctx.beginPath();
+    ctx.arc(o.x, o.y, 2, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fill();
+
+    // v3: Render animation overlay
+    const animState = getAnimationState();
+    renderAnimation(animState);
+  }
+
+  // --- Interaction ---
+  function pointerDown(e) {
+    isDragging = true;
+    isResetting = false;
+    canvas.classList.add('grabbing');
+    dragStartX = e.clientX !== undefined ? e.clientX : e.touches[0].clientX;
+    dragThetaStart = theta;
+    targetVelocity = 0;
+  }
+
+  function pointerMove(e) {
+    if (!isDragging) return;
+    e.preventDefault();
+    const x = e.clientX !== undefined ? e.clientX : e.touches[0].clientX;
+    theta = dragThetaStart + (x - dragStartX) * 0.005;
+  }
+
+  function pointerUp() {
+    if (!isDragging) return;
+    isDragging = false;
+    canvas.classList.remove('grabbing');
+    if (isSpinning) targetVelocity = spinSpeed;
+  }
+
+  canvas.addEventListener('mousedown', pointerDown);
+  window.addEventListener('mousemove', pointerMove);
+  window.addEventListener('mouseup', pointerUp);
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); pointerDown(e); }, { passive: false });
+  window.addEventListener('touchmove', e => { if (isDragging) pointerMove(e); }, { passive: false });
+  window.addEventListener('touchend', pointerUp);
+
+  // --- Controls ---
+  function updateIcon() {
+    iconPause.style.display = isSpinning ? 'block' : 'none';
+    iconPlay.style.display = isSpinning ? 'none' : 'block';
+  }
+
+  btnPlayPause.addEventListener('click', () => {
+    isSpinning = !isSpinning;
+    targetVelocity = isSpinning ? spinSpeed : 0;
+    updateIcon();
+  });
+
+  btnReset.addEventListener('click', () => {
+    isResetting = true;
+    isSpinning = true;
+    targetVelocity = spinSpeed;
+    updateIcon();
+  });
+
+  // --- Animation ---
+  function normalizeAngle(a) {
+    a = a % (2 * Math.PI);
+    if (a > Math.PI) a -= 2 * Math.PI;
+    if (a < -Math.PI) a += 2 * Math.PI;
+    return a;
+  }
+
+  function animate(now) {
+    const dt = (now - lastTime) / 1000;
+    lastTime = now;
+
+    currentVelocity += (targetVelocity - currentVelocity) * 0.04;
+    if (Math.abs(currentVelocity - targetVelocity) < 0.0001) currentVelocity = targetVelocity;
+
+    if (isResetting) {
+      const current = normalizeAngle(theta);
+      let diff = HOME_THETA - current;
+      if (diff > Math.PI) diff -= 2 * Math.PI;
+      if (diff < -Math.PI) diff += 2 * Math.PI;
+      if (Math.abs(diff) < 0.003) {
+        theta = HOME_THETA;
+        isResetting = false;
+      } else {
+        theta = current + diff * 0.06;
+      }
+    } else if (!isDragging) {
+      theta += currentVelocity * dt;
+    }
+
+    render();
+
+    let dTheta = normalizeAngle(theta) / DEG;
+    azEl.innerHTML = Math.round(dTheta) + '<span class="deg">°</span>';
+    elEl.innerHTML = Math.round(PHI / DEG) + '<span class="deg">°</span>';
+
+    requestAnimationFrame(animate);
+  }
+
+  requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>
