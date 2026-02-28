@@ -379,7 +379,6 @@
   const TRIGGER_SUFFIXES = [' geometry', ' math', ' the world', ''];
   const taglineSuffixEl = document.getElementById('taglineSuffix');
   const taglineCursorEl = document.getElementById('taglineCursor');
-  const teaserEl = document.querySelector('.teaser');
   const TW_CHAR_SPEED = 110; // ms per character
   const TW_APPROACH = 22;    // degrees before trigger to start typing
   const TW_DEPART = 8;       // degrees after trigger to start backspacing
@@ -388,7 +387,6 @@
   let twNextTrigger = 0;     // index of next trigger to handle
   let twSuffix = '';
   let twCharsShown = 0;
-  let taglineDismissed = false;
 
   // =============================================
   // v3: Animation Trigger System
@@ -1182,7 +1180,7 @@
     elEl.innerHTML = Math.round(PHI / DEG) + '<span class="deg">°</span>';
 
     // --- Tagline typewriter aligned to dwell triggers ---
-    if (!taglineDismissed && !isDragging && twNextTrigger < TRIGGER_ANGLES.length) {
+    if (!isDragging && twNextTrigger < TRIGGER_ANGLES.length) {
       const targetAngle = TRIGGER_ANGLES[twNextTrigger];
       let deg = ((theta / DEG) % 360 + 360) % 360;
       let diff = deg - targetAngle;
@@ -1259,12 +1257,10 @@
         }
       }
 
-      // 315° hold: after dwell ends and we depart, fade out the teaser
+      // 315° hold: after dwell ends, loop back to first trigger
       if (twState === 'hold' && !isDwelling && diff > TW_DEPART) {
-        taglineDismissed = true;
-        taglineCursorEl.style.display = 'none';
-        teaserEl.style.transition = 'opacity 1.5s ease';
-        teaserEl.style.opacity = '0';
+        twState = 'idle';
+        twNextTrigger = 0;
       }
     }
 
