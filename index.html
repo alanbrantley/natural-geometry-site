@@ -375,29 +375,30 @@
   let dwellTriggerIndex = -1;
   let dwellCooldown = 0; // seconds until next dwell allowed
 
-  // --- Tagline typewriter ---
-  const TAGLINE_SUFFIXES = [' geometry', ' math', ' the world', ''];
+  // --- Tagline typewriter (trigger-aligned) ---
+  const TRIGGER_SUFFIXES = [' geometry', ' math', ' the world', ''];
   const taglineSuffixEl = document.getElementById('taglineSuffix');
   const taglineCursorEl = document.getElementById('taglineCursor');
   const teaserEl = document.querySelector('.teaser');
   const TW_CHAR_SPEED = 110; // ms per character
-  let twState = 'idle'; // idle, typing, visible, backspacing, empty, hold, fading
+  const TW_APPROACH = 22;    // degrees before trigger to start typing
+  const TW_DEPART = 8;       // degrees after trigger to start backspacing
+  let twState = 'idle';      // idle, typing, visible, backspacing, hold
   let twStartTime = 0;
-  let twCurrentRot = -1;
+  let twNextTrigger = 0;     // index of next trigger to handle
   let twSuffix = '';
   let twCharsShown = 0;
   let taglineDismissed = false;
-  let peakRotationCount = 0;
 
   // =============================================
   // v3: Animation Trigger System
   // =============================================
 
   // Trigger angles and delta window
-  const TRIGGER_ANGLES = [45, 135, 225]; // degrees
+  const TRIGGER_ANGLES = [45, 135, 225, 315]; // degrees
   const DELTA_BEFORE = 12; // degrees before trigger: fade in (longer for trail sweep)
   const DELTA_AFTER = 10;  // degrees after trigger: fade out
-  const ANIMATION_NAMES = ['flowerOfLife', 'spheres', 'spheresCube'];
+  const ANIMATION_NAMES = ['flowerOfLife', 'spheres', 'spheresCube', 'none'];
 
   // Get current animation state including phase and raw progress
   function getAnimationState() {
@@ -1180,31 +1181,31 @@
     azEl.innerHTML = Math.round(dTheta) + '<span class="deg">°</span>';
     elEl.innerHTML = Math.round(PHI / DEG) + '<span class="deg">°</span>';
 
-    // --- Tagline typewriter based on rotation progress ---
-    if (!taglineDismissed && !isDragging) {
-      const rotFromStart = (theta - HOME_THETA) / (2 * Math.PI);
-      const currentRot = Math.max(0, Math.floor(rotFromStart));
-      const rotProgress = rotFromStart - Math.floor(rotFromStart);
-      peakRotationCount = Math.max(peakRotationCount, currentRot);
+    // --- Tagline typewriter aligned to dwell triggers ---
+    if (!taglineDismissed && !isDragging && twNextTrigger < TRIGGER_ANGLES.length) {
+      const targetAngle = TRIGGER_ANGLES[twNextTrigger];
+      let deg = ((theta / DEG) % 360 + 360) % 360;
+      let diff = deg - targetAngle;
+      if (diff > 180) diff -= 360;
+      if (diff < -180) diff += 360;
+      // diff < 0 = approaching, diff > 0 = departing
 
-      // Detect new rotation — reset typewriter state
-      if (currentRot !== twCurrentRot && currentRot < TAGLINE_SUFFIXES.length) {
-        twCurrentRot = currentRot;
-        twSuffix = TAGLINE_SUFFIXES[currentRot];
-        twCharsShown = 0;
-        taglineSuffixEl.textContent = '';
-        twState = twSuffix.length > 0 ? 'idle' : 'hold';
+      // Enter approach zone → start typing (or hold for empty suffix)
+      if (twState === 'idle' && diff > -TW_APPROACH && diff < 0) {
+        twSuffix = TRIGGER_SUFFIXES[twNextTrigger];
+        if (twSuffix.length > 0) {
+          twState = 'typing';
+          twStartTime = performance.now();
+          twCharsShown = 0;
+          taglineSuffixEl.textContent = '';
+          taglineCursorEl.style.display = 'inline';
+        } else {
+          twState = 'hold'; // 315° — no suffix, just hold base text
+        }
       }
 
-      // Type-in threshold: later on first rotation (wait for draw-in anim)
-      const typeAt = (currentRot === 0) ? 0.10 : 0.04;
-      const backAt = 0.82;
-
-      if (twState === 'idle' && rotProgress >= typeAt) {
-        twState = 'typing';
-        twStartTime = performance.now();
-        taglineCursorEl.style.display = 'inline';
-      } else if (twState === 'typing') {
+      // Typing: step characters in
+      if (twState === 'typing') {
         const elapsed = performance.now() - twStartTime;
         const chars = Math.min(Math.floor(elapsed / TW_CHAR_SPEED) + 1, twSuffix.length);
         if (chars !== twCharsShown) {
@@ -1215,11 +1216,25 @@
           twState = 'visible';
           taglineCursorEl.style.display = 'none';
         }
-      } else if (twState === 'visible' && rotProgress >= backAt) {
+      }
+
+      // Force-complete typing if dwell snapped before typing finished
+      if (isDwelling && dwellTriggerIndex === twNextTrigger && twState === 'typing') {
+        twCharsShown = twSuffix.length;
+        taglineSuffixEl.textContent = twSuffix;
+        twState = 'visible';
+        taglineCursorEl.style.display = 'none';
+      }
+
+      // After dwell ends and we've departed, start backspacing
+      if (twState === 'visible' && !isDwelling && diff > TW_DEPART) {
         twState = 'backspacing';
         twStartTime = performance.now();
         taglineCursorEl.style.display = 'inline';
-      } else if (twState === 'backspacing') {
+      }
+
+      // Backspacing: step characters out
+      if (twState === 'backspacing') {
         const elapsed = performance.now() - twStartTime;
         const removed = Math.floor(elapsed / TW_CHAR_SPEED) + 1;
         const chars = Math.max(0, twSuffix.length - removed);
@@ -1228,15 +1243,14 @@
           taglineSuffixEl.textContent = twSuffix.substring(0, chars);
         }
         if (chars <= 0) {
-          twState = 'empty';
+          twState = 'idle';
+          twNextTrigger++;
           taglineCursorEl.style.display = 'none';
         }
-      } else if (twState === 'hold' && currentRot >= TAGLINE_SUFFIXES.length - 1) {
-        // 4th rotation (no suffix) — just hold the base text
       }
 
-      // After all 4 rotations complete, fade out the whole teaser
-      if (peakRotationCount >= TAGLINE_SUFFIXES.length && !taglineDismissed) {
+      // 315° hold: after dwell ends and we depart, fade out the teaser
+      if (twState === 'hold' && !isDwelling && diff > TW_DEPART) {
         taglineDismissed = true;
         taglineCursorEl.style.display = 'none';
         teaserEl.style.transition = 'opacity 1.5s ease';
