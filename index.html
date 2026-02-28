@@ -291,7 +291,7 @@
   const DELTA_AFTER = 8;   // degrees after trigger: fade out
   const ANIMATION_NAMES = ['flowerOfLife', 'spheres', 'spheresCube'];
 
-  // Get current animation opacity (0-1) based on theta
+  // Get current animation state including phase and raw progress
   function getAnimationState() {
     // Normalize theta to 0-360
     let deg = ((theta / DEG) % 360 + 360) % 360;
@@ -303,22 +303,23 @@
       if (diff > 180) diff -= 360;
       if (diff < -180) diff += 360;
 
-      const totalWindow = DELTA_BEFORE + DELTA_AFTER;
       if (Math.abs(diff) <= Math.max(DELTA_BEFORE, DELTA_AFTER)) {
-        let opacity;
+        let opacity, phase, rawProgress;
         if (diff <= 0 && Math.abs(diff) <= DELTA_BEFORE) {
           // Approaching: fade in
-          opacity = 1 - Math.abs(diff) / DELTA_BEFORE;
+          rawProgress = 1 - Math.abs(diff) / DELTA_BEFORE; // 0→1
+          phase = 'in';
         } else if (diff > 0 && diff <= DELTA_AFTER) {
           // Departing: fade out
-          opacity = 1 - diff / DELTA_AFTER;
+          rawProgress = 1 - diff / DELTA_AFTER; // 1→0
+          phase = 'out';
         } else {
           continue;
         }
-        // Smooth easing
-        opacity = opacity * opacity * (3 - 2 * opacity); // smoothstep
+        // Smooth easing for opacity
+        opacity = rawProgress * rawProgress * (3 - 2 * rawProgress);
         const animIndex = i % ANIMATION_NAMES.length;
-        return { name: ANIMATION_NAMES[animIndex], opacity, triggerAngle: target };
+        return { name: ANIMATION_NAMES[animIndex], opacity, phase, rawProgress, triggerAngle: target };
       }
     }
     return null;
@@ -334,10 +335,11 @@
     ];
   }
 
-  // --- Flower of Life: 7 overlapping circles ---
+  // --- Flower of Life: 7 overlapping circles with trailing stroke ---
   // Centers: origin + 6 axis endpoints (hexagon corners in projection)
   // Radius = distance from origin to each center → classic overlap
-  function drawFlowerOfLife(opacity) {
+  // Circles trace on during fade-in, untrace during fade-out
+  function drawFlowerOfLife(opacity, phase, rawProgress) {
     const origin = project([0, 0, 0]);
     const centers3D = getFaceCenters3D();
     const projected = centers3D.map(p => project(p));
@@ -350,21 +352,79 @@
     avgDist /= projected.length;
     const radius = avgDist;
 
+    // All circle centers: origin first, then 6 surrounding
+    const allCenters = [origin, ...projected];
+    const TWO_PI = Math.PI * 2;
+    const TRAIL = Math.PI * 0.6; // trail length in radians
+    const TRAIL_SEGS = 20;
+    const BASE_ALPHA = 0.55;
+
     ctx.save();
-    ctx.globalAlpha = opacity * 0.55;
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
     ctx.lineWidth = 1;
 
-    // Center circle
-    ctx.beginPath();
-    ctx.arc(origin.x, origin.y, radius, 0, Math.PI * 2);
-    ctx.stroke();
+    for (let ci = 0; ci < allCenters.length; ci++) {
+      const c = allCenters[ci];
+      // Stagger: center draws first, surrounding circles fan out
+      const stagger = ci === 0 ? 0 : 0.04 + (ci - 1) * 0.02;
 
-    // 6 surrounding circles (same radius, centered at projected face centers)
-    for (const p of projected) {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-      ctx.stroke();
+      if (phase === 'in') {
+        // Progress for this circle (accounting for stagger)
+        const p = Math.max(0, Math.min(1, (rawProgress - stagger) / (1 - stagger)));
+        const headAngle = p * TWO_PI;
+        const trailStart = Math.max(0, headAngle - TRAIL);
+
+        // Solid body (fully traced portion behind the trail)
+        if (trailStart > 0.01) {
+          ctx.globalAlpha = opacity * BASE_ALPHA;
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, radius, 0, trailStart);
+          ctx.stroke();
+        }
+
+        // Trail: fades from solid at trailStart to transparent at headAngle
+        if (headAngle > 0.01) {
+          for (let s = 0; s < TRAIL_SEGS; s++) {
+            const t0 = s / TRAIL_SEGS;
+            const t1 = (s + 1) / TRAIL_SEGS;
+            const a0 = trailStart + (headAngle - trailStart) * t0;
+            const a1 = trailStart + (headAngle - trailStart) * t1;
+            // Bright at trailStart, fading toward head
+            ctx.globalAlpha = opacity * BASE_ALPHA * (1 - t1 * 0.85);
+            ctx.beginPath();
+            ctx.arc(c.x, c.y, radius, a0, a1);
+            ctx.stroke();
+          }
+        }
+      } else {
+        // phase === 'out': circle untraces from where it started
+        const p = Math.max(0, Math.min(1, (rawProgress - stagger) / (1 - stagger)));
+        const eraseAngle = (1 - p) * TWO_PI; // how far erasing has progressed
+        const trailEnd = Math.min(TWO_PI, eraseAngle + TRAIL);
+
+        // Trail at the erasing edge: fading from solid to transparent
+        if (trailEnd > eraseAngle + 0.01) {
+          for (let s = 0; s < TRAIL_SEGS; s++) {
+            const t0 = s / TRAIL_SEGS;
+            const t1 = (s + 1) / TRAIL_SEGS;
+            const a0 = eraseAngle + (trailEnd - eraseAngle) * t0;
+            const a1 = eraseAngle + (trailEnd - eraseAngle) * t1;
+            // Fading from transparent at eraseAngle to solid at trailEnd
+            ctx.globalAlpha = opacity * BASE_ALPHA * t0;
+            ctx.beginPath();
+            ctx.arc(c.x, c.y, radius, a0, a1);
+            ctx.stroke();
+          }
+        }
+
+        // Solid remaining portion (after the trail)
+        if (trailEnd < TWO_PI - 0.01) {
+          ctx.globalAlpha = opacity * BASE_ALPHA;
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, radius, trailEnd, TWO_PI);
+          ctx.stroke();
+        }
+      }
     }
 
     ctx.restore();
@@ -447,7 +507,7 @@
   function renderAnimation(state) {
     if (!state) return;
     switch (state.name) {
-      case 'flowerOfLife': drawFlowerOfLife(state.opacity); break;
+      case 'flowerOfLife': drawFlowerOfLife(state.opacity, state.phase, state.rawProgress); break;
       case 'spheres': drawSpheres(state.opacity); break;
       case 'spheresCube': drawSpheresCube(state.opacity); break;
     }
