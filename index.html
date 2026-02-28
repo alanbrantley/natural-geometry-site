@@ -282,7 +282,7 @@
   let isResetting = false;
 
   // --- Dwell (pause) system ---
-  const DWELL_TIME = 2.5; // seconds to hold at each trigger
+  const DWELL_TIME = 1.5; // seconds to hold at each trigger
   let isDwelling = false;
   let dwellRemaining = 0;
   let dwellTriggerIndex = -1;
@@ -795,7 +795,7 @@
     }
 
     // --- Compute frame target velocity with deceleration zone ---
-    const DECEL_ZONE = 5; // degrees before trigger to start easing down
+    const DECEL_ZONE = 3; // degrees before trigger to start easing down
     let frameTarget = isSpinning ? spinSpeed : 0;
     let easeFactor = 0.04; // default smooth easing
 
@@ -822,7 +822,7 @@
 
     // Smooth acceleration after dwell ends
     if (dwellCooldown > 0 && !isDwelling && !isDragging && !isResetting) {
-      easeFactor = 0.06; // gentle acceleration ramp
+      easeFactor = 0.10; // brisk acceleration ramp
     }
 
     currentVelocity += (frameTarget - currentVelocity) * easeFactor;
