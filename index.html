@@ -791,15 +791,45 @@
         isDwelling = false;
         dwellTriggerIndex = -1;
         dwellCooldown = 2.0; // prevent immediate re-trigger
-        targetVelocity = isSpinning ? spinSpeed : 0;
       }
     }
 
-    currentVelocity += (targetVelocity - currentVelocity) * 0.04;
-    if (Math.abs(currentVelocity - targetVelocity) < 0.0001) currentVelocity = targetVelocity;
+    // --- Compute frame target velocity with deceleration zone ---
+    const DECEL_ZONE = 5; // degrees before trigger to start easing down
+    let frameTarget = isSpinning ? spinSpeed : 0;
+    let easeFactor = 0.04; // default smooth easing
 
+    if (isDragging) {
+      frameTarget = 0;
+    } else if (isDwelling) {
+      frameTarget = 0;
+    } else if (!isResetting && isSpinning && dwellCooldown <= 0) {
+      // Check if approaching a trigger — apply smooth deceleration
+      let deg = ((theta / DEG) % 360 + 360) % 360;
+      for (let i = 0; i < TRIGGER_ANGLES.length; i++) {
+        let diff = deg - TRIGGER_ANGLES[i];
+        if (diff > 180) diff -= 360;
+        if (diff < -180) diff += 360;
+        // Approaching: diff between -DECEL_ZONE and 0
+        if (diff > -DECEL_ZONE && diff < 0) {
+          const t = Math.abs(diff) / DECEL_ZONE; // 1 at zone edge → 0 at trigger
+          frameTarget = spinSpeed * t * t; // quadratic ease-out deceleration
+          easeFactor = 0.12; // faster response for tight decel curve
+          break;
+        }
+      }
+    }
+
+    // Smooth acceleration after dwell ends
+    if (dwellCooldown > 0 && !isDwelling && !isDragging && !isResetting) {
+      easeFactor = 0.06; // gentle acceleration ramp
+    }
+
+    currentVelocity += (frameTarget - currentVelocity) * easeFactor;
+    if (Math.abs(currentVelocity - frameTarget) < 0.0001) currentVelocity = frameTarget;
+
+    // --- Update theta ---
     if (isResetting) {
-      // Cancel dwell on reset
       isDwelling = false;
       dwellTriggerIndex = -1;
       const current = normalizeAngle(theta);
@@ -817,19 +847,18 @@
     } else if (!isDragging) {
       theta += currentVelocity * dt;
 
-      // Check for dwell trigger after theta update
+      // Snap to dwell only when very close AND already slow
       if (isSpinning && dwellCooldown <= 0) {
         let deg = ((theta / DEG) % 360 + 360) % 360;
         for (let i = 0; i < TRIGGER_ANGLES.length; i++) {
           let diff = deg - TRIGGER_ANGLES[i];
           if (diff > 180) diff -= 360;
           if (diff < -180) diff += 360;
-          if (Math.abs(diff) < 0.5) {
+          if (Math.abs(diff) < 0.3 && currentVelocity < spinSpeed * 0.15) {
             isDwelling = true;
             dwellRemaining = DWELL_TIME;
             dwellTriggerIndex = i;
-            theta = TRIGGER_ANGLES[i] * DEG; // snap to exact angle
-            targetVelocity = 0;
+            theta = TRIGGER_ANGLES[i] * DEG; // micro-snap (< 0.3°, imperceptible)
             currentVelocity = 0;
             break;
           }
