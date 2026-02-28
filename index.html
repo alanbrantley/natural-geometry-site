@@ -84,7 +84,16 @@
 
   .tagline-suffix {
     display: inline;
-    transition: opacity 0.5s ease;
+  }
+
+  .tagline-cursor {
+    display: none;
+    font-style: normal;
+    font-weight: 200;
+    animation: blink-cursor 0.7s step-end infinite;
+  }
+  @keyframes blink-cursor {
+    50% { opacity: 0; }
   }
 
   @keyframes draw-in {
@@ -279,7 +288,7 @@
   <!-- Main content -->
   <div class="main">
     <div class="teaser">
-      <div class="tagline" id="tagline">A different way of seeing<span class="tagline-suffix" id="taglineSuffix"> geometry</span></div>
+      <div class="tagline" id="tagline">A different way of seeing<span class="tagline-suffix" id="taglineSuffix"></span><span class="tagline-cursor" id="taglineCursor">|</span></div>
       <div class="status">Taking shape</div>
     </div>
 
@@ -366,11 +375,17 @@
   let dwellTriggerIndex = -1;
   let dwellCooldown = 0; // seconds until next dwell allowed
 
-  // --- Tagline cycling ---
+  // --- Tagline typewriter ---
   const TAGLINE_SUFFIXES = [' geometry', ' math', ' the world', ''];
   const taglineSuffixEl = document.getElementById('taglineSuffix');
+  const taglineCursorEl = document.getElementById('taglineCursor');
   const teaserEl = document.querySelector('.teaser');
-  let currentSuffixIndex = 0;
+  const TW_CHAR_SPEED = 110; // ms per character
+  let twState = 'idle'; // idle, typing, visible, backspacing, empty, hold, fading
+  let twStartTime = 0;
+  let twCurrentRot = -1;
+  let twSuffix = '';
+  let twCharsShown = 0;
   let taglineDismissed = false;
   let peakRotationCount = 0;
 
@@ -1165,21 +1180,65 @@
     azEl.innerHTML = Math.round(dTheta) + '<span class="deg">°</span>';
     elEl.innerHTML = Math.round(PHI / DEG) + '<span class="deg">°</span>';
 
-    // --- Tagline cycling based on completed rotations ---
-    if (!taglineDismissed) {
+    // --- Tagline typewriter based on rotation progress ---
+    if (!taglineDismissed && !isDragging) {
       const rotFromStart = (theta - HOME_THETA) / (2 * Math.PI);
-      peakRotationCount = Math.max(peakRotationCount, Math.floor(rotFromStart));
+      const currentRot = Math.max(0, Math.floor(rotFromStart));
+      const rotProgress = rotFromStart - Math.floor(rotFromStart);
+      peakRotationCount = Math.max(peakRotationCount, currentRot);
 
-      if (peakRotationCount < TAGLINE_SUFFIXES.length && peakRotationCount !== currentSuffixIndex) {
-        currentSuffixIndex = peakRotationCount;
-        const newIdx = peakRotationCount;
-        taglineSuffixEl.style.opacity = '0';
-        setTimeout(() => {
-          taglineSuffixEl.textContent = TAGLINE_SUFFIXES[newIdx];
-          taglineSuffixEl.style.opacity = '1';
-        }, 500);
-      } else if (peakRotationCount >= TAGLINE_SUFFIXES.length) {
+      // Detect new rotation — reset typewriter state
+      if (currentRot !== twCurrentRot && currentRot < TAGLINE_SUFFIXES.length) {
+        twCurrentRot = currentRot;
+        twSuffix = TAGLINE_SUFFIXES[currentRot];
+        twCharsShown = 0;
+        taglineSuffixEl.textContent = '';
+        twState = twSuffix.length > 0 ? 'idle' : 'hold';
+      }
+
+      // Type-in threshold: later on first rotation (wait for draw-in anim)
+      const typeAt = (currentRot === 0) ? 0.10 : 0.04;
+      const backAt = 0.82;
+
+      if (twState === 'idle' && rotProgress >= typeAt) {
+        twState = 'typing';
+        twStartTime = performance.now();
+        taglineCursorEl.style.display = 'inline';
+      } else if (twState === 'typing') {
+        const elapsed = performance.now() - twStartTime;
+        const chars = Math.min(Math.floor(elapsed / TW_CHAR_SPEED) + 1, twSuffix.length);
+        if (chars !== twCharsShown) {
+          twCharsShown = chars;
+          taglineSuffixEl.textContent = twSuffix.substring(0, chars);
+        }
+        if (chars >= twSuffix.length) {
+          twState = 'visible';
+          taglineCursorEl.style.display = 'none';
+        }
+      } else if (twState === 'visible' && rotProgress >= backAt) {
+        twState = 'backspacing';
+        twStartTime = performance.now();
+        taglineCursorEl.style.display = 'inline';
+      } else if (twState === 'backspacing') {
+        const elapsed = performance.now() - twStartTime;
+        const removed = Math.floor(elapsed / TW_CHAR_SPEED) + 1;
+        const chars = Math.max(0, twSuffix.length - removed);
+        if (chars !== twCharsShown) {
+          twCharsShown = chars;
+          taglineSuffixEl.textContent = twSuffix.substring(0, chars);
+        }
+        if (chars <= 0) {
+          twState = 'empty';
+          taglineCursorEl.style.display = 'none';
+        }
+      } else if (twState === 'hold' && currentRot >= TAGLINE_SUFFIXES.length - 1) {
+        // 4th rotation (no suffix) — just hold the base text
+      }
+
+      // After all 4 rotations complete, fade out the whole teaser
+      if (peakRotationCount >= TAGLINE_SUFFIXES.length && !taglineDismissed) {
         taglineDismissed = true;
+        taglineCursorEl.style.display = 'none';
         teaserEl.style.transition = 'opacity 1.5s ease';
         teaserEl.style.opacity = '0';
       }
