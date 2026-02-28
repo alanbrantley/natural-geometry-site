@@ -281,18 +281,31 @@
   let dragThetaStart = 0;
   let isResetting = false;
 
+  // --- Dwell (pause) system ---
+  const DWELL_TIME = 2.5; // seconds to hold at each trigger
+  let isDwelling = false;
+  let dwellRemaining = 0;
+  let dwellTriggerIndex = -1;
+  let dwellCooldown = 0; // seconds until next dwell allowed
+
   // =============================================
   // v3: Animation Trigger System
   // =============================================
 
   // Trigger angles and delta window
   const TRIGGER_ANGLES = [45, 135, 225, 315]; // degrees
-  const DELTA_BEFORE = 8;  // degrees before trigger: fade in
-  const DELTA_AFTER = 8;   // degrees after trigger: fade out
+  const DELTA_BEFORE = 12; // degrees before trigger: fade in (longer for trail sweep)
+  const DELTA_AFTER = 10;  // degrees after trigger: fade out
   const ANIMATION_NAMES = ['flowerOfLife', 'spheres', 'spheresCube'];
 
   // Get current animation state including phase and raw progress
   function getAnimationState() {
+    // During dwell, show full animation
+    if (isDwelling && dwellTriggerIndex >= 0) {
+      const animIndex = dwellTriggerIndex % ANIMATION_NAMES.length;
+      return { name: ANIMATION_NAMES[animIndex], opacity: 1, phase: 'dwell', rawProgress: 1, triggerAngle: TRIGGER_ANGLES[dwellTriggerIndex] };
+    }
+
     // Normalize theta to 0-360
     let deg = ((theta / DEG) % 360 + 360) % 360;
 
@@ -338,7 +351,7 @@
   // --- Flower of Life: 7 overlapping circles with trailing stroke ---
   // Centers: origin + 6 axis endpoints (hexagon corners in projection)
   // Radius = distance from origin to each center → classic overlap
-  // Circles trace on during fade-in, untrace during fade-out
+  // Each surrounding circle begins tracing from the point nearest to center
   function drawFlowerOfLife(opacity, phase, rawProgress) {
     const origin = project([0, 0, 0]);
     const centers3D = getFaceCenters3D();
@@ -355,93 +368,120 @@
     // All circle centers: origin first, then 6 surrounding
     const allCenters = [origin, ...projected];
     const TWO_PI = Math.PI * 2;
-    const TRAIL = Math.PI * 0.5; // trail fade length in radians
-    const TRAIL_SEGS = 16;
+    const TRAIL = Math.PI * 0.8; // trail fade length — nearly half circle
+    const TRAIL_SEGS = 24;       // more segments for smoother gradient
     const BASE_ALPHA = 0.55;
-    const MAX_STAGGER = 0.10; // total stagger budget across all circles
+    const MAX_STAGGER = 0.15;    // 15% stagger for visible cascade
+
+    // Start angle per circle: surrounding circles begin from point facing center
+    const startAngles = [0]; // center circle starts at angle 0
+    for (let i = 0; i < projected.length; i++) {
+      startAngles.push(Math.atan2(origin.y - projected[i].y, origin.x - projected[i].x));
+    }
 
     ctx.save();
-    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-    ctx.lineWidth = 1;
 
     for (let ci = 0; ci < allCenters.length; ci++) {
       const c = allCenters[ci];
-      // Gentle stagger: center first, surrounding fan out evenly
+      const startA = startAngles[ci];
       const stagger = ci === 0 ? 0 : MAX_STAGGER * (ci / (allCenters.length - 1));
-
-      // Map rawProgress to per-circle progress accounting for stagger
       const p = Math.max(0, Math.min(1, (rawProgress - stagger) / (1 - stagger)));
 
+      // --- Dwell: solid complete circles ---
+      if (phase === 'dwell') {
+        ctx.globalAlpha = opacity * BASE_ALPHA;
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, radius, 0, TWO_PI);
+        ctx.stroke();
+        continue;
+      }
+
+      // --- Fade in: trace on from startAngle with comet trail ---
       if (phase === 'in') {
-        // Arc sweeps from 0 to p * TWO_PI
-        const headAngle = p * TWO_PI;
-        if (headAngle < 0.01) continue;
+        const arcExtent = p * TWO_PI;
+        if (arcExtent < 0.01) continue;
 
-        // When nearly/fully complete, draw solid circle
-        if (p >= 0.98) {
+        // Nearly complete — snap to solid
+        if (p >= 0.97) {
           ctx.globalAlpha = opacity * BASE_ALPHA;
+          ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+          ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.arc(c.x, c.y, radius, 0, TWO_PI);
           ctx.stroke();
           continue;
         }
 
-        // Solid body: everything behind the trail
-        const solidEnd = Math.max(0, headAngle - TRAIL);
-        if (solidEnd > 0.01) {
+        const headAngle = startA + arcExtent;
+        const trailBegin = startA + Math.max(0, arcExtent - TRAIL);
+
+        // Solid body behind the trail
+        if (arcExtent > TRAIL) {
           ctx.globalAlpha = opacity * BASE_ALPHA;
+          ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+          ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.arc(c.x, c.y, radius, 0, solidEnd);
+          ctx.arc(c.x, c.y, radius, startA, trailBegin);
           ctx.stroke();
         }
 
-        // Trail: comet effect — bright at head, fades behind
+        // Trail: quadratic ease, line-width taper — bright thick head, fading thin tail
         for (let s = 0; s < TRAIL_SEGS; s++) {
-          const t0 = s / TRAIL_SEGS;
-          const t1 = (s + 1) / TRAIL_SEGS;
-          const a0 = solidEnd + (headAngle - solidEnd) * t0;
-          const a1 = solidEnd + (headAngle - solidEnd) * t1;
-          // t=0 is tail (faded), t=1 is head (bright)
-          ctx.globalAlpha = opacity * BASE_ALPHA * t1;
+          const t = (s + 1) / TRAIL_SEGS;
+          const tPrev = s / TRAIL_SEGS;
+          const a0 = trailBegin + (headAngle - trailBegin) * tPrev;
+          const a1 = trailBegin + (headAngle - trailBegin) * t;
+          ctx.globalAlpha = opacity * BASE_ALPHA * (t * t); // quadratic ease
+          ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+          ctx.lineWidth = 0.4 + t * 0.8; // taper: 0.4 at tail → 1.2 at head
           ctx.beginPath();
           ctx.arc(c.x, c.y, radius, a0, a1);
           ctx.stroke();
         }
-      } else {
-        // phase === 'out': erase from start, sweeping forward
-        const erasePoint = (1 - p) * TWO_PI;
 
-        // When barely started erasing, draw full circle
-        if (p >= 0.98) {
+      // --- Fade out: erase from startAngle with trail ---
+      } else if (phase === 'out') {
+        const arcRemaining = p * TWO_PI;
+        if (arcRemaining < 0.01) continue;
+
+        // Nearly full — draw solid
+        if (p >= 0.97) {
           ctx.globalAlpha = opacity * BASE_ALPHA;
+          ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+          ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.arc(c.x, c.y, radius, 0, TWO_PI);
           ctx.stroke();
           continue;
         }
 
-        // When fully erased, skip
-        if (erasePoint >= TWO_PI - 0.01) continue;
+        // Erase point advances from startA; visible portion shrinks from the end
+        const erasePoint = startA + (TWO_PI - arcRemaining);
+        const trailEnd = Math.min(startA + TWO_PI, erasePoint + TRAIL);
 
-        // Trail at the erasing edge: fades from transparent to solid
-        const trailEnd = Math.min(TWO_PI, erasePoint + TRAIL);
+        // Trail at erasing edge: fading tail → solid body
         for (let s = 0; s < TRAIL_SEGS; s++) {
-          const t0 = s / TRAIL_SEGS;
-          const t1 = (s + 1) / TRAIL_SEGS;
-          const a0 = erasePoint + (trailEnd - erasePoint) * t0;
-          const a1 = erasePoint + (trailEnd - erasePoint) * t1;
-          // t=0 is erasing edge (faded), t=1 is solid side (bright)
-          ctx.globalAlpha = opacity * BASE_ALPHA * t1;
+          const t = (s + 1) / TRAIL_SEGS;
+          const tPrev = s / TRAIL_SEGS;
+          const a0 = erasePoint + (trailEnd - erasePoint) * tPrev;
+          const a1 = erasePoint + (trailEnd - erasePoint) * t;
+          ctx.globalAlpha = opacity * BASE_ALPHA * (t * t);
+          ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+          ctx.lineWidth = 0.4 + t * 0.8;
           ctx.beginPath();
           ctx.arc(c.x, c.y, radius, a0, a1);
           ctx.stroke();
         }
 
-        // Solid remaining portion (after the trail to end of circle)
-        if (trailEnd < TWO_PI - 0.01) {
+        // Solid remaining portion
+        if (trailEnd < startA + TWO_PI - 0.01) {
           ctx.globalAlpha = opacity * BASE_ALPHA;
+          ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+          ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.arc(c.x, c.y, radius, trailEnd, TWO_PI);
+          ctx.arc(c.x, c.y, radius, trailEnd, startA + TWO_PI);
           ctx.stroke();
         }
       }
@@ -528,8 +568,8 @@
     if (!state) return;
     switch (state.name) {
       case 'flowerOfLife': drawFlowerOfLife(state.opacity, state.phase, state.rawProgress); break;
-      case 'spheres': drawSpheres(state.opacity); break;
-      case 'spheresCube': drawSpheresCube(state.opacity); break;
+      case 'spheres': drawSpheres(state.phase === 'dwell' ? 1 : state.opacity); break;
+      case 'spheresCube': drawSpheresCube(state.phase === 'dwell' ? 1 : state.opacity); break;
     }
   }
 
@@ -679,6 +719,12 @@
   function pointerDown(e) {
     isDragging = true;
     isResetting = false;
+    // Cancel dwell on drag
+    if (isDwelling) {
+      isDwelling = false;
+      dwellTriggerIndex = -1;
+      dwellCooldown = 2.0;
+    }
     canvas.classList.add('grabbing');
     dragStartX = e.clientX !== undefined ? e.clientX : e.touches[0].clientX;
     dragThetaStart = theta;
@@ -737,10 +783,25 @@
     const dt = (now - lastTime) / 1000;
     lastTime = now;
 
+    // --- Dwell timer ---
+    dwellCooldown = Math.max(0, dwellCooldown - dt);
+    if (isDwelling) {
+      dwellRemaining -= dt;
+      if (dwellRemaining <= 0) {
+        isDwelling = false;
+        dwellTriggerIndex = -1;
+        dwellCooldown = 2.0; // prevent immediate re-trigger
+        targetVelocity = isSpinning ? spinSpeed : 0;
+      }
+    }
+
     currentVelocity += (targetVelocity - currentVelocity) * 0.04;
     if (Math.abs(currentVelocity - targetVelocity) < 0.0001) currentVelocity = targetVelocity;
 
     if (isResetting) {
+      // Cancel dwell on reset
+      isDwelling = false;
+      dwellTriggerIndex = -1;
       const current = normalizeAngle(theta);
       let diff = HOME_THETA - current;
       if (diff > Math.PI) diff -= 2 * Math.PI;
@@ -751,8 +812,29 @@
       } else {
         theta = current + diff * 0.06;
       }
+    } else if (isDwelling) {
+      // Hold position — theta frozen
     } else if (!isDragging) {
       theta += currentVelocity * dt;
+
+      // Check for dwell trigger after theta update
+      if (isSpinning && dwellCooldown <= 0) {
+        let deg = ((theta / DEG) % 360 + 360) % 360;
+        for (let i = 0; i < TRIGGER_ANGLES.length; i++) {
+          let diff = deg - TRIGGER_ANGLES[i];
+          if (diff > 180) diff -= 360;
+          if (diff < -180) diff += 360;
+          if (Math.abs(diff) < 0.5) {
+            isDwelling = true;
+            dwellRemaining = DWELL_TIME;
+            dwellTriggerIndex = i;
+            theta = TRIGGER_ANGLES[i] * DEG; // snap to exact angle
+            targetVelocity = 0;
+            currentVelocity = 0;
+            break;
+          }
+        }
+      }
     }
 
     render();
