@@ -528,36 +528,238 @@
   }
 
   // --- Spheres + Cube: non-overlapping spheres with explicit cube wireframe ---
-  function drawSpheresCube(opacity) {
-    // Draw the spheres first
-    drawSpheres(opacity);
+  // Trailing stroke animation for both spheres (circles) and cube edges (lines)
+  function drawSpheresCube(opacity, phase, rawProgress) {
+    // --- Sphere geometry (identical to drawSpheres) ---
+    const origin = project([0, 0, 0]);
+    const centers3D = getFaceCenters3D();
+    const projected = centers3D.map(p => project(p));
 
-    const s = PLANE_SIZE;
+    let minDist = Infinity;
+    for (const p of projected) {
+      const d = Math.hypot(p.x - origin.x, p.y - origin.y);
+      if (d < minDist) minDist = d;
+    }
+    const radius = minDist * 0.5;
+
+    // All 7 sphere centers: origin + 6 surrounding
+    const allCenters = [origin, ...projected];
+    const TWO_PI = Math.PI * 2;
+    const TRAIL = Math.PI * 0.8;
+    const TRAIL_SEGS = 24;
+    const SPHERE_ALPHA = 0.5;
+    const SPHERE_STAGGER = 0.15;
+
+    // Each surrounding sphere traces from the point nearest origin
+    const startAngles = [0];
+    for (let i = 0; i < projected.length; i++) {
+      startAngles.push(Math.atan2(origin.y - projected[i].y, origin.x - projected[i].x));
+    }
+
     ctx.save();
-    ctx.globalAlpha = opacity * 0.7;
-    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-    ctx.lineWidth = 1.5;
 
-    // 8 cube vertices
+    // --- Spheres with trailing strokes ---
+    for (let ci = 0; ci < allCenters.length; ci++) {
+      const c = allCenters[ci];
+      const startA = startAngles[ci];
+      const stagger = ci === 0 ? 0 : SPHERE_STAGGER * (ci / (allCenters.length - 1));
+      const p = Math.max(0, Math.min(1, (rawProgress - stagger) / (1 - stagger)));
+
+      // Dwell: solid complete circles
+      if (phase === 'dwell') {
+        ctx.globalAlpha = opacity * SPHERE_ALPHA;
+        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, radius, 0, TWO_PI);
+        ctx.stroke();
+        continue;
+      }
+
+      // Fade in: trace on with comet trail
+      if (phase === 'in') {
+        const arcExtent = p * TWO_PI;
+        if (arcExtent < 0.01) continue;
+        if (p >= 0.97) {
+          ctx.globalAlpha = opacity * SPHERE_ALPHA;
+          ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, radius, 0, TWO_PI);
+          ctx.stroke();
+          continue;
+        }
+        const headAngle = startA + arcExtent;
+        const trailBegin = startA + Math.max(0, arcExtent - TRAIL);
+        if (arcExtent > TRAIL) {
+          ctx.globalAlpha = opacity * SPHERE_ALPHA;
+          ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, radius, startA, trailBegin);
+          ctx.stroke();
+        }
+        for (let seg = 0; seg < TRAIL_SEGS; seg++) {
+          const t = (seg + 1) / TRAIL_SEGS;
+          const tPrev = seg / TRAIL_SEGS;
+          const a0 = trailBegin + (headAngle - trailBegin) * tPrev;
+          const a1 = trailBegin + (headAngle - trailBegin) * t;
+          ctx.globalAlpha = opacity * SPHERE_ALPHA * (t * t);
+          ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+          ctx.lineWidth = 0.4 + t * 0.8;
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, radius, a0, a1);
+          ctx.stroke();
+        }
+
+      // Fade out: erase from startAngle with trail
+      } else if (phase === 'out') {
+        const arcRemaining = p * TWO_PI;
+        if (arcRemaining < 0.01) continue;
+        if (p >= 0.97) {
+          ctx.globalAlpha = opacity * SPHERE_ALPHA;
+          ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, radius, 0, TWO_PI);
+          ctx.stroke();
+          continue;
+        }
+        const erasePoint = startA + (TWO_PI - arcRemaining);
+        const trailEnd = Math.min(startA + TWO_PI, erasePoint + TRAIL);
+        for (let seg = 0; seg < TRAIL_SEGS; seg++) {
+          const t = (seg + 1) / TRAIL_SEGS;
+          const tPrev = seg / TRAIL_SEGS;
+          const a0 = erasePoint + (trailEnd - erasePoint) * tPrev;
+          const a1 = erasePoint + (trailEnd - erasePoint) * t;
+          ctx.globalAlpha = opacity * SPHERE_ALPHA * (t * t);
+          ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+          ctx.lineWidth = 0.4 + t * 0.8;
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, radius, a0, a1);
+          ctx.stroke();
+        }
+        if (trailEnd < startA + TWO_PI - 0.01) {
+          ctx.globalAlpha = opacity * SPHERE_ALPHA;
+          ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, radius, trailEnd, startA + TWO_PI);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // --- Cube wireframe with trailing strokes ---
+    const s = PLANE_SIZE;
     const cubeVerts = [
       [-s, -s, -s], [s, -s, -s], [s, s, -s], [-s, s, -s],
       [-s, -s,  s], [s, -s,  s], [s, s,  s], [-s, s,  s]
     ];
-
-    // 12 edges
     const cubeEdges = [
       [0,1],[1,2],[2,3],[3,0],
       [4,5],[5,6],[6,7],[7,4],
       [0,4],[1,5],[2,6],[3,7]
     ];
+    const EDGE_TRAIL_FRAC = 0.3;
+    const EDGE_TRAIL_SEGS = 12;
+    const EDGE_STAGGER = 0.20;
+    const CUBE_ALPHA = 0.7;
 
-    for (const [a, b] of cubeEdges) {
-      const pa = project(cubeVerts[a]);
-      const pb = project(cubeVerts[b]);
-      ctx.beginPath();
-      ctx.moveTo(pa.x, pa.y);
-      ctx.lineTo(pb.x, pb.y);
-      ctx.stroke();
+    for (let ei = 0; ei < cubeEdges.length; ei++) {
+      const [ai, bi] = cubeEdges[ei];
+      const pa = project(cubeVerts[ai]);
+      const pb = project(cubeVerts[bi]);
+      const stagger = EDGE_STAGGER * (ei / (cubeEdges.length - 1));
+      const p = Math.max(0, Math.min(1, (rawProgress - stagger) / (1 - stagger)));
+
+      // Dwell: solid edges
+      if (phase === 'dwell') {
+        ctx.globalAlpha = opacity * CUBE_ALPHA;
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
+        ctx.stroke();
+        continue;
+      }
+
+      // Fade in: trace edge with comet trail
+      if (phase === 'in') {
+        if (p < 0.01) continue;
+        if (p >= 0.97) {
+          ctx.globalAlpha = opacity * CUBE_ALPHA;
+          ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(pa.x, pa.y);
+          ctx.lineTo(pb.x, pb.y);
+          ctx.stroke();
+          continue;
+        }
+        const trailStart = Math.max(0, p - EDGE_TRAIL_FRAC);
+        if (p > EDGE_TRAIL_FRAC) {
+          ctx.globalAlpha = opacity * CUBE_ALPHA;
+          ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(pa.x, pa.y);
+          ctx.lineTo(pa.x + (pb.x - pa.x) * trailStart, pa.y + (pb.y - pa.y) * trailStart);
+          ctx.stroke();
+        }
+        for (let seg = 0; seg < EDGE_TRAIL_SEGS; seg++) {
+          const t = (seg + 1) / EDGE_TRAIL_SEGS;
+          const tPrev = seg / EDGE_TRAIL_SEGS;
+          const frac0 = trailStart + (p - trailStart) * tPrev;
+          const frac1 = trailStart + (p - trailStart) * t;
+          ctx.globalAlpha = opacity * CUBE_ALPHA * (t * t);
+          ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+          ctx.lineWidth = 0.4 + t * 1.1;
+          ctx.beginPath();
+          ctx.moveTo(pa.x + (pb.x - pa.x) * frac0, pa.y + (pb.y - pa.y) * frac0);
+          ctx.lineTo(pa.x + (pb.x - pa.x) * frac1, pa.y + (pb.y - pa.y) * frac1);
+          ctx.stroke();
+        }
+
+      // Fade out: erase edge with trail
+      } else if (phase === 'out') {
+        if (p < 0.01) continue;
+        if (p >= 0.97) {
+          ctx.globalAlpha = opacity * CUBE_ALPHA;
+          ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(pa.x, pa.y);
+          ctx.lineTo(pb.x, pb.y);
+          ctx.stroke();
+          continue;
+        }
+        const erasePoint = 1 - p;
+        const trailEnd = Math.min(1, erasePoint + EDGE_TRAIL_FRAC);
+        for (let seg = 0; seg < EDGE_TRAIL_SEGS; seg++) {
+          const t = (seg + 1) / EDGE_TRAIL_SEGS;
+          const tPrev = seg / EDGE_TRAIL_SEGS;
+          const frac0 = erasePoint + (trailEnd - erasePoint) * tPrev;
+          const frac1 = erasePoint + (trailEnd - erasePoint) * t;
+          ctx.globalAlpha = opacity * CUBE_ALPHA * (t * t);
+          ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+          ctx.lineWidth = 0.4 + t * 1.1;
+          ctx.beginPath();
+          ctx.moveTo(pa.x + (pb.x - pa.x) * frac0, pa.y + (pb.y - pa.y) * frac0);
+          ctx.lineTo(pa.x + (pb.x - pa.x) * frac1, pa.y + (pb.y - pa.y) * frac1);
+          ctx.stroke();
+        }
+        if (trailEnd < 1 - 0.01) {
+          ctx.globalAlpha = opacity * CUBE_ALPHA;
+          ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(pa.x + (pb.x - pa.x) * trailEnd, pa.y + (pb.y - pa.y) * trailEnd);
+          ctx.lineTo(pb.x, pb.y);
+          ctx.stroke();
+        }
+      }
     }
 
     ctx.restore();
@@ -569,7 +771,7 @@
     switch (state.name) {
       case 'flowerOfLife': drawFlowerOfLife(state.opacity, state.phase, state.rawProgress); break;
       case 'spheres': drawSpheres(state.phase === 'dwell' ? 1 : state.opacity); break;
-      case 'spheresCube': drawSpheresCube(state.phase === 'dwell' ? 1 : state.opacity); break;
+      case 'spheresCube': drawSpheresCube(state.phase === 'dwell' ? 1 : state.opacity, state.phase, state.rawProgress); break;
     }
   }
 
