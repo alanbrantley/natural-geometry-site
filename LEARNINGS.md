@@ -15,3 +15,11 @@ User aesthetic strongly favors pencil-drawn monochrome. Colored plane fills were
 ## 2026-02-28 — Static Site Vercel Deployment
 
 Single `index.html` sites need zero Vercel config. Framework preset: "Other". No build command. Auto-deploys on every push to main. Custom domain requires A record (76.76.21.21) for root and CNAME (cname.vercel-dns.com) for www.
+
+## 2026-03-02 — Typewriter Timing with Dwell Triggers
+
+Align typewriter to angular position, not rotation count. Type-in at TW_APPROACH (22°) before trigger, backspace at TW_BACKSPACE_BEFORE (35°) before the NEXT trigger. Use wall-clock time (performance.now()) for character stepping so typing speed is consistent regardless of rotation velocity changes from decel/accel. Keep suffix visible between dwells — backspace late, not early.
+
+## 2026-03-02 — User Prefers Minimal Copy Changes
+
+When user says "just add X to Y", do exactly that — don't restructure HTML or add new elements. One-line text changes should be one-line edits.
